@@ -1,0 +1,13 @@
+{
+  "name": "mygo-music-desktop-lyrics",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Windows Desktop Lyrics plugin for MyGo Music (gootal26/mygo-music-Desktop-Lyrics)",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs",
+    "build": "node --test scripts/verify.test.mjs",
+    "lint": "node --check index.js && node --check server.mjs && node --check scripts/verify.test.mjs"
+  }
+}

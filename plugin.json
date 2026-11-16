@@ -1,0 +1,115 @@
+{
+  "id": "windows-desktop-lyrics",
+  "name": "Desktop Lyrics",
+  "version": "1.1.0",
+  "minAppVersion": "0.1.8",
+  "main": "index.js",
+  "playback": "stream",
+  "permissions": {
+    "network": ["lrclib.net", "music.163.com"],
+    "process": ["powershell", "pwsh"]
+  },
+  "settings": [
+    {
+      "key": "enabled",
+      "label": "Enable Desktop Lyrics",
+      "type": "boolean",
+      "help": "Show a floating always-on-top lyrics bar on Windows. Requires allowing powershell under Permissions above."
+    },
+    {
+      "key": "locked",
+      "label": "Lock Lyrics Window",
+      "type": "boolean",
+      "help": "Make the lyrics window click-through so it does not block mouse clicks on other apps."
+    },
+    {
+      "key": "onlineLyrics",
+      "label": "Match Online Lyrics",
+      "type": "boolean",
+      "help": "On by default. Automatically searches online lyrics when no local .lrc file is found."
+    },
+    {
+      "key": "lyricsSource",
+      "label": "Online Lyrics Source",
+      "type": "select",
+      "options": [
+        { "value": "auto", "label": "Auto (NetEase + LRCLIB)" },
+        { "value": "netease", "label": "NetEase Cloud Music" },
+        { "value": "lrclib", "label": "LRCLIB" }
+      ]
+    },
+    {
+      "key": "simplifyChinese",
+      "label": "Convert to Simplified Chinese",
+      "type": "boolean",
+      "help": "Automatically convert Traditional Chinese lyrics to Simplified Chinese when using Chinese UI."
+    },
+    {
+      "key": "showTranslation",
+      "label": "Show Second Line / Translation",
+      "type": "boolean",
+      "help": "On by default. Display translated lyrics or the next lyric line beneath the current line."
+    },
+    {
+      "key": "lyricsOffset",
+      "label": "Lyrics Timing Offset",
+      "type": "select",
+      "options": [
+        { "value": "-2000", "label": "-2.0s (Earlier)" },
+        { "value": "-1000", "label": "-1.0s (Earlier)" },
+        { "value": "-500", "label": "-0.5s (Earlier)" },
+        { "value": "0", "label": "0.0s (Default)" },
+        { "value": "500", "label": "+0.5s (Later)" },
+        { "value": "1000", "label": "+1.0s (Later)" },
+        { "value": "2000", "label": "+2.0s (Later)" }
+      ]
+    },
+    {
+      "key": "fontSize",
+      "label": "Font Size",
+      "type": "select",
+      "options": [
+        { "value": "small", "label": "Small" },
+        { "value": "medium", "label": "Medium" },
+        { "value": "large", "label": "Large" }
+      ]
+    },
+    {
+      "key": "position",
+      "label": "Default Position",
+      "type": "select",
+      "options": [
+        { "value": "bottom", "label": "Bottom of Screen" },
+        { "value": "top", "label": "Top of Screen" }
+      ]
+    },
+    {
+      "key": "accentColor",
+      "label": "Highlight Color",
+      "type": "select",
+      "options": [
+        { "value": "coral", "label": "Coral Red" },
+        { "value": "sky", "label": "Sky Blue" },
+        { "value": "gold", "label": "Warm Gold" },
+        { "value": "mint", "label": "Mint Green" }
+      ]
+    },
+    {
+      "key": "backdropStyle",
+      "label": "Backdrop Style",
+      "type": "select",
+      "options": [
+        { "value": "subtle", "label": "Subtle Glass Capsule" },
+        { "value": "transparent", "label": "Pure Transparent Text" }
+      ]
+    },
+    {
+      "key": "localDirs",
+      "label": "Extra Local Lyrics Folders",
+      "help": "Optional folders containing .lrc files, separated by semicolons (;)."
+    }
+  ],
+  "navigation": [
+    { "builtin": "home" }
+  ]
+}
