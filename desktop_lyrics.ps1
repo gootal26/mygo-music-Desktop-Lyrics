@@ -1,5 +1,5 @@
 param(
-    [string]$DataDir = $PSScriptRoot,
+    [string]$DataDir = $env:TEMP,
     [string]$Lang = "zh-CN"
 )
 
@@ -39,6 +39,53 @@ public static class LyricsWin32 {
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern int LCMapStringW(uint Locale, uint dwMapFlags, string lpSrcStr, int cchSrc, StringBuilder lpDestStr, int cchDest);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool Process32FirstW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool Process32NextW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct PROCESSENTRY32W {
+        public uint dwSize;
+        public uint cntUsage;
+        public uint th32ProcessID;
+        public IntPtr th32DefaultHeapID;
+        public uint th32ModuleID;
+        public uint cntThreads;
+        public uint th32ParentProcessID;
+        public int pcPriClassBase;
+        public uint dwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+        public string szExeFile;
+    }
+
+    public static int GetParentPid(int pid) {
+        IntPtr snap = CreateToolhelp32Snapshot(0x00000002, 0);
+        if (snap == IntPtr.Zero || snap == new IntPtr(-1)) return 0;
+        try {
+            PROCESSENTRY32W entry = new PROCESSENTRY32W();
+            entry.dwSize = (uint)Marshal.SizeOf(typeof(PROCESSENTRY32W));
+            if (Process32FirstW(snap, ref entry)) {
+                do {
+                    if ((int)entry.th32ProcessID == pid) {
+                        return (int)entry.th32ParentProcessID;
+                    }
+                } while (Process32NextW(snap, ref entry));
+            }
+        } catch {}
+        finally {
+            CloseHandle(snap);
+        }
+        return 0;
+    }
+
     public static string ToSimplified(string text) {
         if (string.IsNullOrEmpty(text)) return text;
         try {
@@ -59,6 +106,10 @@ if (-not (Test-Path -LiteralPath $DataDir)) {
 }
 
 $posPath = Join-Path $DataDir "window_pos.json"
+$instancePath = Join-Path $DataDir "overlay.instance"
+$myInstanceToken = [guid]::NewGuid().ToString("N")
+try { [System.IO.File]::WriteAllText($instancePath, $myInstanceToken, [System.Text.Encoding]::ASCII) } catch {}
+$parentPid = [LyricsWin32]::GetParentPid($PID)
 $localIndexPath = [System.IO.Path]::GetFullPath((Join-Path $DataDir "..\..\local\index.json"))
 
 # Use raw standard pipes with explicit UTF-8 + ASCII JSON escaping to prevent GBK mojibake
@@ -777,9 +828,41 @@ function Update-LyricsDisplay {
     }
 }
 
+$script:watchdogTick = 0
 $timer = New-Object System.Windows.Threading.DispatcherTimer
 $timer.Interval = [TimeSpan]::FromMilliseconds(50)
 $timer.Add_Tick({
+    $script:watchdogTick++
+    if ($script:watchdogTick -ge 30) {
+        $script:watchdogTick = 0
+        try {
+            if ($parentPid -gt 0) {
+                $parentProc = [System.Diagnostics.Process]::GetProcessById($parentPid)
+                if ($null -eq $parentProc -or $parentProc.HasExited) {
+                    $runningFlag.alive = $false
+                    $timer.Stop()
+                    $win.Close()
+                    return
+                }
+            }
+        } catch {
+            $runningFlag.alive = $false
+            $timer.Stop()
+            $win.Close()
+            return
+        }
+        try {
+            if (Test-Path -LiteralPath $instancePath) {
+                $curTok = ([System.IO.File]::ReadAllText($instancePath, [System.Text.Encoding]::ASCII)).Trim()
+                if ($curTok -and $curTok -ne $myInstanceToken) {
+                    $runningFlag.alive = $false
+                    $timer.Stop()
+                    $win.Close()
+                    return
+                }
+            }
+        } catch {}
+    }
     $rawCmd = $null
     while ($cmdQueue.TryDequeue([ref]$rawCmd)) {
         try {

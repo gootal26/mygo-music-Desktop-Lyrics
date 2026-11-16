@@ -616,6 +616,14 @@ const HTML = `<!doctype html>
               <li><code>mygo-music://</code> 是自定义 URL 协议而不是可执行文件。请在浏览器的安装按钮上点击打开，或在 CMD 中运行上方完整的 <code>start "" "mygo-music://..."</code> 命令，也可按 <code>Win + R</code> 粘贴链接回车唤醒。</li>
             </ul>
           </details>
+          <details>
+            <summary>安装 / 重装提示 “rename ... replaced: The process cannot access the file because it is being used by another process”？</summary>
+            <ul>
+              <li>这是因为旧版正在运行的 <code>powershell.exe</code> 桌面歌词进程占用着旧插件目录，导致 Windows 无法替换文件。</li>
+              <li><strong>一次性解决：</strong>先关闭「开启桌面歌词」并退出 MyGo Music（或任务管理器结束 <code>powershell.exe</code>），再重新点击安装/更新即可。</li>
+              <li>新版已改为切换工作目录到 <code>%TEMP%</code> 并从内存执行脚本，不再锁定插件目录，后续更新无需关闭歌词。</li>
+            </ul>
+          </details>
         </div>
       </div>
     </section>

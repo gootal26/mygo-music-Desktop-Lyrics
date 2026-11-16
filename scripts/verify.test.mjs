@@ -116,25 +116,35 @@ test("index.js IPC escaping, NetEase priority, LRCLIB fallback, and settings lif
       readQueueResolve = resolve;
     });
 
-  globalThis.host.spawn = () => ({
-    write: (chunk) => written.push(chunk),
-    readLine: readLineImpl,
-    wait: () => Promise.resolve(0),
-    closeStdin: () => {
-      closed = true;
-      if (readQueueResolve) {
-        const r = readQueueResolve;
-        readQueueResolve = null;
-        r(null);
-      }
-    },
-    kill: () => {
-      killed = true;
-    },
-  });
+  let capturedArgs = null;
+  globalThis.host.spawn = (_exe, args) => {
+    capturedArgs = args;
+    return {
+      write: (chunk) => written.push(chunk),
+      readLine: readLineImpl,
+      wait: () => Promise.resolve(0),
+      closeStdin: () => {
+        closed = true;
+        if (readQueueResolve) {
+          const r = readQueueResolve;
+          readQueueResolve = null;
+          r(null);
+        }
+      },
+      kill: () => {
+        killed = true;
+      },
+    };
+  };
 
   // Start via setSetting({ key: "enabled", value: "true" })
   mod.setSetting({ key: "enabled", value: "true" });
+  assert.ok(Array.isArray(capturedArgs));
+  assert.equal(capturedArgs.includes("-File"), false, "Must not hold -File lock inside host.dir");
+  assert.ok(capturedArgs.includes("-Command"));
+  const cmdStr = capturedArgs[capturedArgs.indexOf("-Command") + 1];
+  assert.ok(cmdStr.includes("Set-Location -LiteralPath $env:TEMP"));
+  assert.ok(cmdStr.includes("[scriptblock]::Create"));
   assert.equal(written.length, 1);
   // Config message must be strictly ASCII (\uXXXX escaped)
   assert.equal(/[^\x00-\x7f]/.test(written[0]), false, "Overlay stdin payload must be pure ASCII");

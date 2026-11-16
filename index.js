@@ -328,6 +328,10 @@ async function pumpOverlay(proc, gen) {
   }
 }
 
+function psQuote(s) {
+  return `'${String(s || "").replace(/'/g, "''")}'`;
+}
+
 function startOverlay() {
   if (host.platform !== "windows") {
     overlayError = "Windows only";
@@ -339,18 +343,20 @@ function startOverlay() {
   }
   overlayError = "";
   const scriptPath = `${host.dir}\\desktop_lyrics.ps1`;
+  const bootstrapCmd = [
+    "Set-Location -LiteralPath $env:TEMP",
+    `$p=${psQuote(scriptPath)}`,
+    "$c=[System.IO.File]::ReadAllText($p,[System.Text.Encoding]::UTF8)",
+    `& ([scriptblock]::Create($c)) -DataDir ${psQuote(host.dataDir)} -Lang ${psQuote(host.language())}`,
+  ].join("; ");
   try {
     const proc = host.spawn("powershell.exe", [
       "-NoProfile",
       "-ExecutionPolicy",
       "Bypass",
       "-Sta",
-      "-File",
-      scriptPath,
-      "-DataDir",
-      host.dataDir,
-      "-Lang",
-      host.language(),
+      "-Command",
+      bootstrapCmd,
     ]);
     overlayProc = proc;
     const gen = ++pumpGeneration;
