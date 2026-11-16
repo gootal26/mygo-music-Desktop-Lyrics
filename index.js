@@ -352,6 +352,8 @@ function startOverlay() {
   try {
     const proc = host.spawn("powershell.exe", [
       "-NoProfile",
+      "-WindowStyle",
+      "Hidden",
       "-ExecutionPolicy",
       "Bypass",
       "-Sta",

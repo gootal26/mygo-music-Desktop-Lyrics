@@ -617,11 +617,11 @@ const HTML = `<!doctype html>
             </ul>
           </details>
           <details>
-            <summary>安装 / 重装提示 “rename ... replaced: The process cannot access the file because it is being used by another process”？</summary>
+            <summary>安装 / 更新提示 “rename ... replaced: The process cannot access the file because it is being used by another process”？</summary>
             <ul>
-              <li>这是因为旧版正在运行的 <code>powershell.exe</code> 桌面歌词进程占用着旧插件目录，导致 Windows 无法替换文件。</li>
-              <li><strong>一次性解决：</strong>先关闭「开启桌面歌词」并退出 MyGo Music（或任务管理器结束 <code>powershell.exe</code>），再重新点击安装/更新即可。</li>
-              <li>新版已改为切换工作目录到 <code>%TEMP%</code> 并从内存执行脚本，不再锁定插件目录，后续更新无需关闭歌词。</li>
+              <li>旧版（<code>1.1.0</code> 及以前）在开启开关后会用 <code>-File</code> 锁定旧插件目录；若开关保持开启，重启 MyGo Music 时又会立刻自动拉起旧脚本重新锁住目录。</li>
+              <li><strong>一次性解除：</strong>先在插件设置里把「开启桌面歌词」关闭，再重启一次 MyGo Music（或任务管理器结束 <code>powershell.exe</code>），随后即可顺利更新到新版。</li>
+              <li>新版已改为切换到 <code>%TEMP%</code> 并从内存执行脚本，不再锁定插件目录，后续更新无需再关闭歌词。</li>
             </ul>
           </details>
         </div>

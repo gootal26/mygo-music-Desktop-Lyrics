@@ -5,11 +5,14 @@ import path from "node:path";
 
 const root = process.cwd();
 
-test("desktop_lyrics.ps1 contains strictly 7-bit ASCII characters", () => {
+test("desktop_lyrics.ps1 contains strictly 7-bit ASCII characters and avoids csc.exe / DropShadowEffect", () => {
   const psPath = path.join(root, "desktop_lyrics.ps1");
   const content = fs.readFileSync(psPath, "utf8");
   const nonAscii = [...content].findIndex((ch) => ch.charCodeAt(0) > 0x7f);
   assert.equal(nonAscii, -1, `Found non-ASCII character at index ${nonAscii}`);
+  assert.equal(content.includes('Add-Type @"'), false, "Must not invoke csc.exe via Add-Type C# block");
+  assert.equal(content.includes("<DropShadowEffect"), false, "Must not use <DropShadowEffect> shader on layered window");
+  assert.ok(content.includes("DefinePInvokeMethod"), "Should bind Win32 APIs via Reflection.Emit");
 });
 
 test("plugin.json and locales/zh-CN.json are valid and completely localized", () => {

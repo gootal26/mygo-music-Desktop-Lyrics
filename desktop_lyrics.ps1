@@ -10,96 +10,82 @@ Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
+# Pure Reflection.Emit P/Invoke bindings: zero csc.exe subprocess spawn, zero startup CPU spike
+function Init-LyricsNative {
+    $asmName = [System.Reflection.AssemblyName]::new("MyGoLyricsNative")
+    $asmBuilder = [System.Reflection.Emit.AssemblyBuilder]::DefineDynamicAssembly($asmName, [System.Reflection.Emit.AssemblyBuilderAccess]::Run)
+    $modBuilder = $asmBuilder.DefineDynamicModule("MyGoLyricsNativeMod")
+    $tb = $modBuilder.DefineType("LyricsNative", [System.Reflection.TypeAttributes]"Public, Abstract, Sealed, BeforeFieldInit")
 
-public static class LyricsWin32 {
-    public const int GWL_EXSTYLE = -20;
-    public const int WS_EX_TRANSPARENT = 0x00000020;
-    public const int WS_EX_TOOLWINDOW = 0x00000080;
-    public const int WS_EX_NOACTIVATE = 0x08000000;
+    $attr = [System.Reflection.MethodAttributes]"Public, Static, PinvokeImpl"
+    $cc = [System.Reflection.CallingConventions]::Standard
+    $winapi = [System.Runtime.InteropServices.CallingConvention]::Winapi
+    $utf16 = [System.Runtime.InteropServices.CharSet]::Unicode
+    $pres = [System.Reflection.MethodImplAttributes]::PreserveSig
 
-    public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
-    public const uint SWP_NOMOVE = 0x0002;
-    public const uint SWP_NOSIZE = 0x0001;
-    public const uint SWP_NOACTIVATE = 0x0010;
-    private const uint LCMAP_SIMPLIFIED_CHINESE = 0x02000000;
+    $m1 = $tb.DefinePInvokeMethod("GetWindowLong", "user32.dll", $attr, $cc, [int], @([IntPtr], [int]), $winapi, $utf16)
+    $m1.SetImplementationFlags($m1.GetMethodImplementationFlags() -bor $pres)
 
-    [DllImport("user32.dll", SetLastError = true)]
-    public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+    $m2 = $tb.DefinePInvokeMethod("SetWindowLong", "user32.dll", $attr, $cc, [int], @([IntPtr], [int], [int]), $winapi, $utf16)
+    $m2.SetImplementationFlags($m2.GetMethodImplementationFlags() -bor $pres)
 
-    [DllImport("user32.dll", SetLastError = true)]
-    public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+    $m3 = $tb.DefinePInvokeMethod("SetWindowPos", "user32.dll", $attr, $cc, [bool], @([IntPtr], [IntPtr], [int], [int], [int], [int], [uint32]), $winapi, $utf16)
+    $m3.SetImplementationFlags($m3.GetMethodImplementationFlags() -bor $pres)
 
-    [DllImport("user32.dll", SetLastError = true)]
-    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    $m4 = $tb.DefinePInvokeMethod("LCMapStringW", "kernel32.dll", $attr, $cc, [int], @([uint32], [uint32], [string], [int], [System.Text.StringBuilder], [int]), $winapi, $utf16)
+    $m4.SetImplementationFlags($m4.GetMethodImplementationFlags() -bor $pres)
 
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern int LCMapStringW(uint Locale, uint dwMapFlags, string lpSrcStr, int cchSrc, StringBuilder lpDestStr, int cchDest);
+    $m5 = $tb.DefinePInvokeMethod("NtQueryInformationProcess", "ntdll.dll", $attr, $cc, [int], @([IntPtr], [int], [byte[]], [int], [IntPtr]), $winapi, $utf16)
+    $m5.SetImplementationFlags($m5.GetMethodImplementationFlags() -bor $pres)
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+    return $tb.CreateType()
+}
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool CloseHandle(IntPtr hObject);
+$script:NativeType = Init-LyricsNative
+$GWL_EXSTYLE = -20
+$WS_EX_TRANSPARENT = 0x00000020
+$WS_EX_TOOLWINDOW = 0x00000080
+$WS_EX_NOACTIVATE = 0x08000000
+$HWND_TOPMOST = [IntPtr]::new(-1)
+$SWP_NOSIZE = [uint32]0x0001
+$SWP_NOMOVE = [uint32]0x0002
+$SWP_NOZORDER = [uint32]0x0004
+$SWP_NOACTIVATE = [uint32]0x0010
+$SWP_FRAMECHANGED = [uint32]0x0020
+$LCMAP_SIMPLIFIED_CHINESE = [uint32]0x02000000
 
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern bool Process32FirstW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern bool Process32NextW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct PROCESSENTRY32W {
-        public uint dwSize;
-        public uint cntUsage;
-        public uint th32ProcessID;
-        public IntPtr th32DefaultHeapID;
-        public uint th32ModuleID;
-        public uint cntThreads;
-        public uint th32ParentProcessID;
-        public int pcPriClassBase;
-        public uint dwFlags;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
-        public string szExeFile;
-    }
-
-    public static int GetParentPid(int pid) {
-        IntPtr snap = CreateToolhelp32Snapshot(0x00000002, 0);
-        if (snap == IntPtr.Zero || snap == new IntPtr(-1)) return 0;
-        try {
-            PROCESSENTRY32W entry = new PROCESSENTRY32W();
-            entry.dwSize = (uint)Marshal.SizeOf(typeof(PROCESSENTRY32W));
-            if (Process32FirstW(snap, ref entry)) {
-                do {
-                    if ((int)entry.th32ProcessID == pid) {
-                        return (int)entry.th32ParentProcessID;
-                    }
-                } while (Process32NextW(snap, ref entry));
-            }
-        } catch {}
-        finally {
-            CloseHandle(snap);
+function Get-ParentPidNative {
+    try {
+        $bufLen = [IntPtr]::Size * 6
+        $buf = [byte[]]::new($bufLen)
+        $procHandle = [System.Diagnostics.Process]::GetCurrentProcess().Handle
+        $status = $script:NativeType::NtQueryInformationProcess($procHandle, 0, $buf, $bufLen, [IntPtr]::Zero)
+        if ($status -eq 0) {
+            return [BitConverter]::ToInt32($buf, [IntPtr]::Size * 5)
         }
-        return 0;
-    }
+    } catch {}
+    return 0
+}
 
-    public static string ToSimplified(string text) {
-        if (string.IsNullOrEmpty(text)) return text;
-        try {
-            int len = LCMapStringW(0x0804, LCMAP_SIMPLIFIED_CHINESE, text, text.Length, null, 0);
-            if (len <= 0) return text;
-            StringBuilder sb = new StringBuilder(len);
-            int res = LCMapStringW(0x0804, LCMAP_SIMPLIFIED_CHINESE, text, text.Length, sb, len);
-            return res > 0 ? sb.ToString() : text;
-        } catch {
-            return text;
-        }
+$script:simplifyCache = @{}
+function Convert-ToSimplified([string]$text) {
+    if ([string]::IsNullOrEmpty($text)) { return $text }
+    if ($script:simplifyCache.ContainsKey($text)) {
+        return $script:simplifyCache[$text]
+    }
+    try {
+        $len = $script:NativeType::LCMapStringW([uint32]0x0804, $LCMAP_SIMPLIFIED_CHINESE, $text, $text.Length, $null, 0)
+        if ($len -le 0) { return $text }
+        $sb = [System.Text.StringBuilder]::new($len)
+        $res = $script:NativeType::LCMapStringW([uint32]0x0804, $LCMAP_SIMPLIFIED_CHINESE, $text, $text.Length, $sb, $len)
+        $out = if ($res -gt 0) { $sb.ToString() } else { $text }
+        if ($script:simplifyCache.Count -gt 400) { $script:simplifyCache.Clear() }
+        $script:simplifyCache[$text] = $out
+        return $out
+    } catch {
+        return $text
     }
 }
-"@
 
 if (-not (Test-Path -LiteralPath $DataDir)) {
     New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
@@ -109,7 +95,7 @@ $posPath = Join-Path $DataDir "window_pos.json"
 $instancePath = Join-Path $DataDir "overlay.instance"
 $myInstanceToken = [guid]::NewGuid().ToString("N")
 try { [System.IO.File]::WriteAllText($instancePath, $myInstanceToken, [System.Text.Encoding]::ASCII) } catch {}
-$parentPid = [LyricsWin32]::GetParentPid($PID)
+$parentPid = Get-ParentPidNative
 $localIndexPath = [System.IO.Path]::GetFullPath((Join-Path $DataDir "..\..\local\index.json"))
 
 # Use raw standard pipes with explicit UTF-8 + ASCII JSON escaping to prevent GBK mojibake
@@ -331,10 +317,6 @@ $null = $smtcPs.AddScript({
     }
 
     $mgr = $null
-    try {
-        $mgr = Await-WinRT ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
-    } catch {}
-
     $lastTrackKey = ""
     $reqCounter = 0
 
@@ -419,7 +401,7 @@ $null = $smtcPs.AddScript({
                 updatedUtc = $updatedUtc
             })
         } catch {}
-        Start-Sleep -Milliseconds 200
+        Start-Sleep -Milliseconds 250
     }
 })
 $smtcHandle = $smtcPs.BeginInvoke()
@@ -427,7 +409,7 @@ $smtcHandle = $smtcPs.BeginInvoke()
 function Maybe-Simplify([string]$text) {
     if (-not $text) { return "" }
     if ($configBox.simplifyChinese) {
-        return [LyricsWin32]::ToSimplified($text)
+        return Convert-ToSimplified $text
     }
     return $text
 }
@@ -506,7 +488,7 @@ function Parse-Lrc([string]$Raw, [string]$TransRaw = "") {
     return $merged.ToArray()
 }
 
-# Build WPF overlay window (pure ASCII XAML)
+# Build WPF overlay window (pure ASCII XAML, zero pixel-shader DropShadowEffect to eliminate layered DWM stutter)
 $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -516,6 +498,7 @@ $xaml = @"
         Background="Transparent"
         Topmost="True"
         ShowInTaskbar="False"
+        ShowActivated="False"
         ResizeMode="NoResize"
         SnapsToDevicePixels="True"
         TextOptions.TextFormattingMode="Display"
@@ -552,34 +535,51 @@ $xaml = @"
             </Setter>
         </Style>
     </Window.Resources>
-    <Border x:Name="RootCard" CornerRadius="20" Padding="32,12" Background="#94131418" BorderThickness="1" BorderBrush="#24FFFFFF">
+    <Border x:Name="RootCard" CornerRadius="20" Padding="32,12" Background="#8A121318" BorderThickness="1" BorderBrush="#22FFFFFF">
         <Grid>
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                <TextBlock x:Name="MainLine"
-                           Text="MyGo Music"
-                           FontFamily="Microsoft YaHei UI, Segoe UI"
-                           FontSize="28"
-                           FontWeight="SemiBold"
-                           Foreground="#FFFF7466"
-                           TextAlignment="Center"
-                           TextTrimming="CharacterEllipsis">
-                    <TextBlock.Effect>
-                        <DropShadowEffect ShadowDepth="1" BlurRadius="4" Color="#B0000000" Opacity="0.72"/>
-                    </TextBlock.Effect>
-                </TextBlock>
-                <TextBlock x:Name="SubLine"
-                           Text=""
-                           Margin="0,5,0,0"
-                           FontFamily="Microsoft YaHei UI, Segoe UI"
-                           FontSize="15"
-                           FontWeight="Normal"
-                           Foreground="#EBF3F4F6"
-                           TextAlignment="Center"
-                           TextTrimming="CharacterEllipsis">
-                    <TextBlock.Effect>
-                        <DropShadowEffect ShadowDepth="1" BlurRadius="3" Color="#A0000000" Opacity="0.68"/>
-                    </TextBlock.Effect>
-                </TextBlock>
+                <Grid>
+                    <TextBlock x:Name="MainLineShadow"
+                               Text="MyGo Music"
+                               Margin="1,1,0,0"
+                               FontFamily="Microsoft YaHei UI, Segoe UI"
+                               FontSize="28"
+                               FontWeight="SemiBold"
+                               Foreground="#AA000000"
+                               TextAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               Visibility="Collapsed"
+                               IsHitTestVisible="False"/>
+                    <TextBlock x:Name="MainLine"
+                               Text="MyGo Music"
+                               FontFamily="Microsoft YaHei UI, Segoe UI"
+                               FontSize="28"
+                               FontWeight="SemiBold"
+                               Foreground="#FFFF7466"
+                               TextAlignment="Center"
+                               TextTrimming="CharacterEllipsis"/>
+                </Grid>
+                <Grid Margin="0,5,0,0">
+                    <TextBlock x:Name="SubLineShadow"
+                               Text=""
+                               Margin="1,1,0,0"
+                               FontFamily="Microsoft YaHei UI, Segoe UI"
+                               FontSize="15"
+                               FontWeight="Normal"
+                               Foreground="#AA000000"
+                               TextAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               Visibility="Collapsed"
+                               IsHitTestVisible="False"/>
+                    <TextBlock x:Name="SubLine"
+                               Text=""
+                               FontFamily="Microsoft YaHei UI, Segoe UI"
+                               FontSize="15"
+                               FontWeight="Normal"
+                               Foreground="#EBF3F4F6"
+                               TextAlignment="Center"
+                               TextTrimming="CharacterEllipsis"/>
+                </Grid>
             </StackPanel>
 
             <StackPanel x:Name="ControlsBar"
@@ -614,7 +614,9 @@ $reader = New-Object System.Xml.XmlNodeReader ([xml]$xaml)
 $win = [Windows.Markup.XamlReader]::Load($reader)
 $rootCard = $win.FindName("RootCard")
 $mainLine = $win.FindName("MainLine")
+$mainLineShadow = $win.FindName("MainLineShadow")
 $subLine = $win.FindName("SubLine")
+$subLineShadow = $win.FindName("SubLineShadow")
 $controlsBar = $win.FindName("ControlsBar")
 $earlyBtn = $win.FindName("EarlyBtn")
 $lateBtn = $win.FindName("LateBtn")
@@ -625,6 +627,18 @@ $workArea = [System.Windows.SystemParameters]::WorkArea
 $script:hwnd = [IntPtr]::Zero
 $script:hasCustomPos = $false
 $script:nudgeMs = 0
+$script:lastConfigSignature = ""
+$script:lastRenderedMain = $null
+$script:lastRenderedSub = $null
+$script:lastSubVisible = $null
+$script:lastExStyleApplied = $null
+
+$brushConv = [System.Windows.Media.BrushConverter]::new()
+$bgSubtleBrush = $brushConv.ConvertFromString("#8A121318")
+$bgHoverBrush = $brushConv.ConvertFromString("#B814151B")
+$bgTransBrush = $brushConv.ConvertFromString("#01000000")
+$borderSubtleBrush = $brushConv.ConvertFromString("#22FFFFFF")
+$borderHoverBrush = $brushConv.ConvertFromString("#3CFFFFFF")
 
 function Set-DefaultPosition {
     $win.Left = $workArea.Left + ($workArea.Width - $win.Width) / 2
@@ -650,33 +664,44 @@ if (-not $script:hasCustomPos) {
 }
 
 function Apply-RestingBackdrop {
-    $brushConv = [System.Windows.Media.BrushConverter]::new()
     if ($configBox.backdropStyle -eq "transparent") {
-        $rootCard.Background = $brushConv.ConvertFromString("#01000000")
+        $rootCard.Background = $bgTransBrush
         $rootCard.BorderBrush = [System.Windows.Media.Brushes]::Transparent
+        $mainLineShadow.Visibility = [System.Windows.Visibility]::Visible
+        $subLineShadow.Visibility = $subLine.Visibility
     } else {
-        $rootCard.Background = $brushConv.ConvertFromString("#8A121318")
-        $rootCard.BorderBrush = $brushConv.ConvertFromString("#22FFFFFF")
+        $rootCard.Background = $bgSubtleBrush
+        $rootCard.BorderBrush = $borderSubtleBrush
+        $mainLineShadow.Visibility = [System.Windows.Visibility]::Collapsed
+        $subLineShadow.Visibility = [System.Windows.Visibility]::Collapsed
     }
 }
 
-function Apply-WindowStyle {
+function Apply-WindowStyle([bool]$forceTopmost = $false) {
     if ($script:hwnd -eq [IntPtr]::Zero) { return }
-    $ex = [LyricsWin32]::GetWindowLong($script:hwnd, [LyricsWin32]::GWL_EXSTYLE)
-    $ex = $ex -bor [LyricsWin32]::WS_EX_TOOLWINDOW -bor [LyricsWin32]::WS_EX_NOACTIVATE
+    $curEx = $script:NativeType::GetWindowLong($script:hwnd, $GWL_EXSTYLE)
+    $newEx = $curEx -bor $WS_EX_TOOLWINDOW -bor $WS_EX_NOACTIVATE
     if ($configBox.locked) {
-        $ex = $ex -bor [LyricsWin32]::WS_EX_TRANSPARENT
+        $newEx = $newEx -bor $WS_EX_TRANSPARENT
         $controlsBar.Visibility = [System.Windows.Visibility]::Collapsed
         Apply-RestingBackdrop
     } else {
-        $ex = $ex -band (-bnot [LyricsWin32]::WS_EX_TRANSPARENT)
+        $newEx = $newEx -band (-bnot $WS_EX_TRANSPARENT)
     }
-    [void][LyricsWin32]::SetWindowLong($script:hwnd, [LyricsWin32]::GWL_EXSTYLE, $ex)
-    [void][LyricsWin32]::SetWindowPos($script:hwnd, [LyricsWin32]::HWND_TOPMOST, 0, 0, 0, 0, [LyricsWin32]::SWP_NOMOVE -bor [LyricsWin32]::SWP_NOSIZE -bor [LyricsWin32]::SWP_NOACTIVATE)
+    if ($newEx -ne $curEx -or $script:lastExStyleApplied -ne $newEx) {
+        $script:lastExStyleApplied = $newEx
+        [void]$script:NativeType::SetWindowLong($script:hwnd, $GWL_EXSTYLE, $newEx)
+        [void]$script:NativeType::SetWindowPos($script:hwnd, $HWND_TOPMOST, 0, 0, 0, 0, $SWP_NOMOVE -bor $SWP_NOSIZE -bor $SWP_NOACTIVATE -bor $SWP_FRAMECHANGED)
+    } elseif ($forceTopmost) {
+        [void]$script:NativeType::SetWindowPos($script:hwnd, $HWND_TOPMOST, 0, 0, 0, 0, $SWP_NOMOVE -bor $SWP_NOSIZE -bor $SWP_NOACTIVATE)
+    }
 }
 
-function Apply-VisualTheme {
-    $brushConv = [System.Windows.Media.BrushConverter]::new()
+function Apply-VisualTheme([bool]$force = $false) {
+    $sig = "$($configBox.locked)|$($configBox.fontSize)|$($configBox.position)|$($configBox.accentColor)|$($configBox.backdropStyle)|$($configBox.uiLock)|$($configBox.simplifyChinese)|$($configBox.showTranslation)"
+    if (-not $force -and $sig -eq $script:lastConfigSignature) { return }
+    $script:lastConfigSignature = $sig
+
     $accentHex = switch ($configBox.accentColor) {
         "sky"   { "#FF66D1FF" }
         "gold"  { "#FFFFD56A" }
@@ -687,36 +712,84 @@ function Apply-VisualTheme {
     switch ($configBox.fontSize) {
         "small" {
             $mainLine.FontSize = 22
+            $mainLineShadow.FontSize = 22
             $subLine.FontSize = 14
-            $win.Height = 100
+            $subLineShadow.FontSize = 14
+            if ($win.Height -ne 100) { $win.Height = 100 }
         }
         "large" {
             $mainLine.FontSize = 34
+            $mainLineShadow.FontSize = 34
             $subLine.FontSize = 18
-            $win.Height = 138
+            $subLineShadow.FontSize = 18
+            if ($win.Height -ne 138) { $win.Height = 138 }
         }
         default {
             $mainLine.FontSize = 28
+            $mainLineShadow.FontSize = 28
             $subLine.FontSize = 15
-            $win.Height = 124
+            $subLineShadow.FontSize = 15
+            if ($win.Height -ne 124) { $win.Height = 124 }
         }
     }
     $lockBtn.Content = if ($configBox.uiLock) { $configBox.uiLock } else { "Lock" }
     Apply-RestingBackdrop
-    Apply-WindowStyle
+    Apply-WindowStyle $false
+    $script:lastRenderedMain = $null
+    $script:lastRenderedSub = $null
+}
+
+function Apply-ConfigPayload($cmd) {
+    $oldPos = $configBox.position
+    $configBox.locked = [bool]$cmd.locked
+    $configBox.onlineLyrics = [bool]$cmd.onlineLyrics
+    $configBox.simplifyChinese = [bool]$cmd.simplifyChinese
+    $configBox.showTranslation = [bool]$cmd.showTranslation
+    $configBox.offsetMs = [int]$cmd.offsetMs
+    if ($cmd.fontSize) { $configBox.fontSize = [string]$cmd.fontSize }
+    if ($cmd.position) { $configBox.position = [string]$cmd.position }
+    if ($cmd.accentColor) { $configBox.accentColor = [string]$cmd.accentColor }
+    if ($cmd.backdropStyle) { $configBox.backdropStyle = [string]$cmd.backdropStyle }
+    $configBox.localDirs = [string]$cmd.localDirs
+    if ($cmd.lang) { $configBox.lang = [string]$cmd.lang }
+    if ($cmd.uiLock) { $configBox.uiLock = [string]$cmd.uiLock }
+    if ($cmd.uiWait) { $configBox.uiWait = [string]$cmd.uiWait }
+    Apply-VisualTheme $false
+    if (-not $script:hasCustomPos -and $oldPos -ne $configBox.position) {
+        Set-DefaultPosition
+    }
+}
+
+# Wait briefly (up to 120ms) for the initial config already queued on stdin so the window opens once with final style/size
+$waitCount = 0
+while ($cmdQueue.IsEmpty -and $waitCount -lt 12) {
+    Start-Sleep -Milliseconds 10
+    $waitCount++
+}
+$initRaw = $null
+while ($cmdQueue.TryDequeue([ref]$initRaw)) {
+    try {
+        $initCmd = $initRaw | ConvertFrom-Json
+        if ($initCmd -and $initCmd.type -eq "config") {
+            Apply-ConfigPayload $initCmd
+        } elseif ($initCmd) {
+            $cmdQueue.Enqueue($initRaw)
+            break
+        }
+    } catch {}
 }
 
 $win.Add_SourceInitialized({
     $helper = New-Object System.Windows.Interop.WindowInteropHelper($win)
     $script:hwnd = $helper.Handle
-    Apply-VisualTheme
+    Apply-VisualTheme $true
+    Apply-WindowStyle $true
 })
 
 $rootCard.Add_MouseEnter({
     if (-not $configBox.locked) {
-        $brushConv = [System.Windows.Media.BrushConverter]::new()
-        $rootCard.Background = $brushConv.ConvertFromString("#B814151B")
-        $rootCard.BorderBrush = $brushConv.ConvertFromString("#3CFFFFFF")
+        $rootCard.Background = $bgHoverBrush
+        $rootCard.BorderBrush = $borderHoverBrush
         $controlsBar.Visibility = [System.Windows.Visibility]::Visible
     }
 })
@@ -742,7 +815,7 @@ $lateBtn.Add_Click({ $script:nudgeMs -= 500 })
 
 $lockBtn.Add_Click({
     $configBox.locked = $true
-    Apply-WindowStyle
+    Apply-WindowStyle $false
     Send-HostMessage @{ type = "lockChanged"; locked = $true }
 })
 
@@ -767,73 +840,86 @@ $script:lyricsLines = @()
 $script:plainText = ""
 
 function Update-LyricsDisplay {
+    $nextMain = ""
+    $nextSub = ""
+
     if (-not $script:hasSession -or -not $script:currentTitle) {
-        $mainLine.Text = if ($configBox.uiWait) { $configBox.uiWait } else { "MyGo Music" }
-        $subLine.Text = ""
-        $subLine.Visibility = [System.Windows.Visibility]::Collapsed
-        return
-    }
-
-    $posMs = $script:basePosMs
-    if ($script:isPlaying) {
-        $elapsed = ([datetime]::UtcNow - $script:baseAtUtc).TotalMilliseconds
-        if ($elapsed -gt 0) { $posMs += $elapsed }
-        if ($script:baseDurMs -gt 0 -and $posMs -gt $script:baseDurMs) {
-            $posMs = $script:baseDurMs
-        }
-    }
-    $posMs += [double]($configBox.offsetMs + $script:nudgeMs)
-    if ($posMs -lt 0) { $posMs = 0 }
-
-    if ($script:lyricsLines.Count -gt 0) {
-        $idx = -1
-        for ($i = 0; $i -lt $script:lyricsLines.Count; $i++) {
-            if ($script:lyricsLines[$i].At -le ($posMs + 120)) {
-                $idx = $i
-            } else {
-                break
+        $nextMain = if ($configBox.uiWait) { $configBox.uiWait } else { "MyGo Music" }
+        $nextSub = ""
+    } else {
+        $posMs = $script:basePosMs
+        if ($script:isPlaying) {
+            $elapsed = ([datetime]::UtcNow - $script:baseAtUtc).TotalMilliseconds
+            if ($elapsed -gt 0) { $posMs += $elapsed }
+            if ($script:baseDurMs -gt 0 -and $posMs -gt $script:baseDurMs) {
+                $posMs = $script:baseDurMs
             }
         }
-        if ($idx -lt 0) {
-            $mainLine.Text = Maybe-Simplify $script:currentTitle
-            $subLine.Text = if ($configBox.showTranslation) { Maybe-Simplify $script:lyricsLines[0].Text } else { "" }
-        } else {
-            $cur = $script:lyricsLines[$idx]
-            $mainLine.Text = Maybe-Simplify $cur.Text
-            if ($configBox.showTranslation) {
-                if ($cur.Translation) {
-                    $subLine.Text = Maybe-Simplify $cur.Translation
-                } elseif ($idx + 1 -lt $script:lyricsLines.Count) {
-                    $subLine.Text = Maybe-Simplify $script:lyricsLines[$idx + 1].Text
+        $posMs += [double]($configBox.offsetMs + $script:nudgeMs)
+        if ($posMs -lt 0) { $posMs = 0 }
+
+        if ($script:lyricsLines.Count -gt 0) {
+            $idx = -1
+            for ($i = 0; $i -lt $script:lyricsLines.Count; $i++) {
+                if ($script:lyricsLines[$i].At -le ($posMs + 120)) {
+                    $idx = $i
                 } else {
-                    $subLine.Text = ""
+                    break
                 }
-            } else {
-                $subLine.Text = ""
             }
+            if ($idx -lt 0) {
+                $nextMain = Maybe-Simplify $script:currentTitle
+                $nextSub = if ($configBox.showTranslation) { Maybe-Simplify $script:lyricsLines[0].Text } else { "" }
+            } else {
+                $cur = $script:lyricsLines[$idx]
+                $nextMain = Maybe-Simplify $cur.Text
+                if ($configBox.showTranslation) {
+                    if ($cur.Translation) {
+                        $nextSub = Maybe-Simplify $cur.Translation
+                    } elseif ($idx + 1 -lt $script:lyricsLines.Count) {
+                        $nextSub = Maybe-Simplify $script:lyricsLines[$idx + 1].Text
+                    }
+                }
+            }
+        } elseif ($script:plainText) {
+            $firstLine = (($script:plainText -split "`r?`n") | Where-Object { $_.Trim() } | Select-Object -First 1)
+            $nextMain = Maybe-Simplify $(if ($firstLine) { $firstLine } else { $script:currentTitle })
+            $nextSub = Maybe-Simplify $script:currentArtist
+        } else {
+            $nextMain = Maybe-Simplify $script:currentTitle
+            $nextSub = Maybe-Simplify $script:currentArtist
         }
-    } elseif ($script:plainText) {
-        $firstLine = (($script:plainText -split "`r?`n") | Where-Object { $_.Trim() } | Select-Object -First 1)
-        $mainLine.Text = Maybe-Simplify $(if ($firstLine) { $firstLine } else { $script:currentTitle })
-        $subLine.Text = Maybe-Simplify $script:currentArtist
-    } else {
-        $mainLine.Text = Maybe-Simplify $script:currentTitle
-        $subLine.Text = Maybe-Simplify $script:currentArtist
     }
 
-    $subLine.Visibility = if ([string]::IsNullOrWhiteSpace($subLine.Text)) {
-        [System.Windows.Visibility]::Collapsed
-    } else {
-        [System.Windows.Visibility]::Visible
+    if ($nextMain -ne $script:lastRenderedMain) {
+        $script:lastRenderedMain = $nextMain
+        $mainLine.Text = $nextMain
+        $mainLineShadow.Text = $nextMain
+    }
+    if ($nextSub -ne $script:lastRenderedSub) {
+        $script:lastRenderedSub = $nextSub
+        $subLine.Text = $nextSub
+        $subLineShadow.Text = $nextSub
+    }
+    $wantSubVis = -not [string]::IsNullOrWhiteSpace($nextSub)
+    if ($wantSubVis -ne $script:lastSubVisible) {
+        $script:lastSubVisible = $wantSubVis
+        $visVal = if ($wantSubVis) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed }
+        $subLine.Visibility = $visVal
+        if ($configBox.backdropStyle -eq "transparent") {
+            $subLineShadow.Visibility = $visVal
+        } else {
+            $subLineShadow.Visibility = [System.Windows.Visibility]::Collapsed
+        }
     }
 }
 
 $script:watchdogTick = 0
 $timer = New-Object System.Windows.Threading.DispatcherTimer
-$timer.Interval = [TimeSpan]::FromMilliseconds(50)
+$timer.Interval = [TimeSpan]::FromMilliseconds(100)
 $timer.Add_Tick({
     $script:watchdogTick++
-    if ($script:watchdogTick -ge 30) {
+    if ($script:watchdogTick -ge 15) {
         $script:watchdogTick = 0
         try {
             if ($parentPid -gt 0) {
@@ -863,6 +949,7 @@ $timer.Add_Tick({
             }
         } catch {}
     }
+
     $rawCmd = $null
     while ($cmdQueue.TryDequeue([ref]$rawCmd)) {
         try {
@@ -876,24 +963,7 @@ $timer.Add_Tick({
                     return
                 }
                 "config" {
-                    $oldPos = $configBox.position
-                    $configBox.locked = [bool]$cmd.locked
-                    $configBox.onlineLyrics = [bool]$cmd.onlineLyrics
-                    $configBox.simplifyChinese = [bool]$cmd.simplifyChinese
-                    $configBox.showTranslation = [bool]$cmd.showTranslation
-                    $configBox.offsetMs = [int]$cmd.offsetMs
-                    if ($cmd.fontSize) { $configBox.fontSize = [string]$cmd.fontSize }
-                    if ($cmd.position) { $configBox.position = [string]$cmd.position }
-                    if ($cmd.accentColor) { $configBox.accentColor = [string]$cmd.accentColor }
-                    if ($cmd.backdropStyle) { $configBox.backdropStyle = [string]$cmd.backdropStyle }
-                    $configBox.localDirs = [string]$cmd.localDirs
-                    if ($cmd.lang) { $configBox.lang = [string]$cmd.lang }
-                    if ($cmd.uiLock) { $configBox.uiLock = [string]$cmd.uiLock }
-                    if ($cmd.uiWait) { $configBox.uiWait = [string]$cmd.uiWait }
-                    Apply-VisualTheme
-                    if (-not $script:hasCustomPos -and $oldPos -ne $configBox.position) {
-                        Set-DefaultPosition
-                    }
+                    Apply-ConfigPayload $cmd
                 }
                 "resetPos" {
                     $script:hasCustomPos = $false
